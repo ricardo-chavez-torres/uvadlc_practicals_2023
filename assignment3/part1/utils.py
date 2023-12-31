@@ -35,8 +35,7 @@ def sample_reparameterize(mean, std):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-    z = None
-    raise NotImplementedError
+    z = mean + std * torch.randn_like(mean)
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -58,8 +57,8 @@ def KLD(mean, log_std):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-    KLD = None
-    raise NotImplementedError
+    KLD = 0.5 * torch.sum(torch.exp(2 * log_std) + mean**2 - 1 - 2 * log_std, dim=-1)
+    # raise NotImplementedError
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -78,8 +77,8 @@ def elbo_to_bpd(elbo, img_shape):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-    bpd = None
-    raise NotImplementedError
+    bpd = elbo * np.log2(np.e) / np.prod(img_shape[1:])
+    # raise NotImplementedError
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -110,11 +109,31 @@ def visualize_manifold(decoder, grid_size=20):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-    img_grid = None
-    raise NotImplementedError
+    ## Hints:
+    # - You can use the icdf method of the torch normal distribution  to obtain z values at percentiles.
+    # - Use the range [0.5/grid_size, 1.5/grid_size, ..., (grid_size-0.5)/grid_size] for the percentiles.
+    # - torch.meshgrid might be helpful for creating the grid of values
+    # - You can use torchvision's function "make_grid" to combine the grid_size**2 images into a grid
+    # - Remember to apply a softmax after the decoder
+
+    percentiles = torch.linspace(0.5/grid_size, (grid_size-0.5)/grid_size, grid_size)
+    z = torch.distributions.Normal(0, 1).icdf(percentiles) # https://edstem.org/eu/courses/915/discussion/72219
+
+    z1, z2 = torch.meshgrid([z, z])
+    z1, z2 = z1.flatten(), z2.flatten()
+
+    z = torch.stack([z1, z2], dim=-1)
+
+    #no ancestral sampling, just the maximum likelihood x given z as in the paper, Kingma and Welling 2014
+    with torch.no_grad():
+        samples = decoder(z).argmax(dim=1, keepdim = True).float() / 15
+
+    img_grid = make_grid(samples, nrow=grid_size, normalize=True, value_range=(0, 1), pad_value=0.5)    
+    img_grid = img_grid.detach().cpu()
+    # raise NotImplementedError
+
     #######################
     # END OF YOUR CODE    #
     #######################
 
     return img_grid
-

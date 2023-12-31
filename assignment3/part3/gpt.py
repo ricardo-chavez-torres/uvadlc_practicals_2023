@@ -10,6 +10,7 @@ https://github.com/huggingface/transformers/blob/main/src/transformers/models/gp
 
 import math
 from argparse import Namespace
+from numpy import transpose
 
 import torch
 import torch.nn as nn
@@ -90,11 +91,22 @@ class CausalSelfAttention(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        raise NotImplementedError
+        # Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
+        # - Calculate attention weights using key and queries
+        e = torch.matmul(q, k.transpose(2,3))
+        # - Mask the calculated attention weights with the mask parameter.
+        e = e.masked_fill(self.mask[:, :, :seq_len, :seq_len] == 0, (-torch.inf))
+        
+        # - Apply dropout to the weigths
+        attention = F.softmax(e, dim = 3)
+        attention = self.attn_dropout(attention)
+        # - Apply attention to the values (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+        y = torch.matmul(attention, v)
+        # raise NotImplementedError
         #######################
         # END OF YOUR CODE    #
         #######################
-       
+
         # re-assemble all head outputs side by side and apply output projection
         y = y.transpose(1, 2).contiguous().view(batch_size, seq_len, n_embd) 
         y = self.resid_dropout(self.c_proj(y))
@@ -389,10 +401,36 @@ class GPT(nn.Module):
             # - apply softmax to convert logits to (normalized) probabilities
             # - either sample from the distribution or take the most likely element
             # - append sampled index to the running sequence and continue
+            
             #######################
             # PUT YOUR CODE HERE  #
             #######################
-            raise NotImplementedError
+
+            # - forward the model to get the logits for the index in the sequence
+            logits = self.forward(idx_cond) # (batch_size, sequence_length, vocabulary_size)
+            
+            # - pluck the logits at the final step and scale by desired temperature
+            logits = logits[:, -1, :] / temperature
+            
+            # # - optionally only consider top-k logits for sampling
+            if top_k:
+                values, _ = torch.topk(logits, top_k)
+                min_values = values[:, -1]
+                #nullifies the non in topk outputs (in the softmax will have values 0 after e**-inf)
+                logits = torch.where(logits < min_values.unsqueeze(-1), torch.ones_like(logits, dtype=logits.dtype) * (-torch.inf) , logits)
+            
+            # - apply softmax to convert logits to (normalized) probabilities
+            probs = F.softmax(logits, dim=-1)
+            
+            # - either sample from the distribution or take the most likely element
+            if do_sample:
+                idx_next = torch.multinomial(probs, 1).long()
+            else:
+                idx_next = torch.argmax(probs, dim=-1, keepdim=True)
+            
+            # - append sampled index to the running sequence and continue
+            idx = torch.cat([idx, idx_next], dim=1)
+            # raise NotImplementedError
             #######################
             # END OF YOUR CODE    #
             #######################

@@ -70,17 +70,24 @@ class VAE(pl.LightningModule):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        L_rec = None
-        L_reg = None
-        bpd = None
-        raise NotImplementedError
+        mean, log_std = self.encoder(imgs)
+        z = sample_reparameterize(mean,torch.exp(log_std))
+        x_hat = self.decoder(z)
+        L_rec = torch.nn.functional.cross_entropy(x_hat.permute(0, 2, 3, 1).reshape(-1,self.decoder.num_input_channels), imgs.reshape(-1), reduction ="none").reshape(imgs.shape[0],-1).sum(dim=1)
+        L_reg = KLD(mean, log_std)
+        elbo = L_rec + L_reg
+        bpd = elbo_to_bpd(elbo, imgs.shape)
+        bpd = bpd.mean()
+        L_rec = L_rec.mean() 
+        L_reg = L_reg.mean()
+
         #######################
         # END OF YOUR CODE    #
         #######################
         return L_rec, L_reg, bpd
 
     @torch.no_grad()
-    def sample(self, batch_size):
+    def sample(self, batch_size, deterministic_decoding = False):
         """
         Function for sampling a new batch of random images.
         Inputs:
@@ -91,8 +98,15 @@ class VAE(pl.LightningModule):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        x_samples = None
-        raise NotImplementedError
+        if deterministic_decoding: 
+            z = torch.randn(batch_size, self.hparams.z_dim, device = self.decoder.device)
+            x_samples = self.decoder(z).argmax(dim=1, keepdim = True) #/ (self.hparams.num_filters-1)
+        else:
+            z = torch.randn(batch_size, self.hparams.z_dim, device = self.decoder.device)
+            probabilities = F.softmax(self.decoder(z), dim=1) # (batch, classes, heigth, width)
+            batch_size, n_classes, heigth, width = probabilities.shape
+            x_samples = torch.multinomial(probabilities.permute(0,2,3,1).reshape(-1,n_classes),1).reshape(batch_size, 1, heigth, width)
+        # raise NotImplementedError
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -141,6 +155,14 @@ class GenerateCallback(pl.Callback):
         self.every_n_epochs = every_n_epochs
         self.save_to_disk = save_to_disk
 
+    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx, dataloader_idx = 0):
+        """
+        This function is called after every epoch.
+        Call the save_and_sample function every N epochs.
+        """
+        if (trainer.current_epoch == 0) and (batch_idx == 0):
+            self.sample_and_save(trainer, pl_module, trainer.current_epoch)
+            
     def on_train_epoch_end(self, trainer, pl_module):
         """
         This function is called after every epoch.
@@ -202,7 +224,8 @@ def train_vae(args):
                 lr=args.lr)
 
     # Training
-    gen_callback.sample_and_save(trainer, model, epoch=0)  # Initial sample
+    # gen_callback.sample_and_save(trainer, model, epoch=0)  # Initial sample
+    trainer.validate(model, dataloaders=[val_loader])
     trainer.fit(model, train_loader, val_loader)
 
     # Testing
@@ -212,9 +235,12 @@ def train_vae(args):
     # Manifold generation
     if args.z_dim == 2:
         img_grid = visualize_manifold(model.decoder)
+        trainer.logger.experiment.add_image("VAE_manifold", img_grid)
         save_image(img_grid,
                    os.path.join(trainer.logger.log_dir, 'vae_manifold.png'),
                    normalize=False)
+        
+        print(f"Manifold generated at {trainer.logger.log_dir}")
 
     return test_result
 
