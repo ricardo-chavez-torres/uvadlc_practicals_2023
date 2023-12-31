@@ -21,6 +21,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import torch
 import torch.nn as nn
 from collections import OrderedDict
 
@@ -55,11 +56,42 @@ class MLP(nn.Module):
         
         Hint: No softmax layer is needed here. Look at the CrossEntropyLoss module for loss calculation.
         """
-
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        super().__init__()
+        
+        self.n_inputs =n_inputs
+        self.n_hidden = n_hidden
+        self.n_classes = n_classes
+        self.use_batch_norm = use_batch_norm
+        layers = []
+        in_dim = n_inputs
+        first_layer = True
+        
+        for out_dim in n_hidden:
+            layers.append(nn.Linear(in_dim, out_dim))
+            if first_layer:
+                layers[-1].weight.data.normal_(0, 1 / in_dim**(1/2))
+            else:
+                layers[-1].weight.data.normal_(0, 2**(1/2) / in_dim**(1/2)) 
+            layers[-1].bias.data.zero_()
+            
+            first_layer = False
+
+            
+            if use_batch_norm:
+                self.net.append(nn.BatchNorm1d(out_dim))
+            layers.append(nn.ELU())
+            in_dim = out_dim
+        
+        layers.append(nn.Linear(in_dim, n_classes)) 
+        layers[-1].weight.data.normal_(0, 2**(1/2) / in_dim**(1/2))
+        layers[-1].bias.data.zero_()
+        layers.append(nn.ELU())
+        self.net = nn.Sequential(*layers)
+
+
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -81,7 +113,7 @@ class MLP(nn.Module):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-
+        out = self.net(x)
         #######################
         # END OF YOUR CODE    #
         #######################

@@ -23,6 +23,7 @@ from __future__ import print_function
 
 import argparse
 import numpy as np
+import matplotlib.pyplot as plt
 import os
 from copy import deepcopy
 from tqdm.auto import tqdm
@@ -43,12 +44,20 @@ def confusion_matrix(predictions, targets):
       labels: 1D int array of size [batch_size]. Ground truth labels for
               each sample in the batch
     Returns:
-      confusion_matrix: confusion matrix per class, 2D float array of size [n_classes, n_classes]
+      confusion_matrix: confusion matrix per class, 2D float array of size [n_classes, n_classes] sith rows as true classes and columns as predicted classes
     """
 
     #######################
     # PUT YOUR CODE HERE  #
     #######################
+    
+    predicted_labels = torch.argmax(predictions, dim=1)
+
+    n_classes = predictions.shape[1]
+    conf_mat = torch.zeros(n_classes, n_classes)
+
+    for i in range(targets.size(0)):
+        conf_mat[int(targets[i]), int(predicted_labels[i])] += 1
 
     #######################
     # END OF YOUR CODE    #
@@ -67,10 +76,23 @@ def confusion_matrix_to_metrics(confusion_matrix, beta=1.):
         recall: 1D float array of size [n_classes], the recall for each clas
         f1_beta: 1D float array of size [n_classes], the f1_beta scores for each class
     """
+
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-
+    metrics = {}
+    N = confusion_matrix.sum()
+    tp = torch.diag(confusion_matrix)
+    fp = confusion_matrix.sum(dim=0) - tp
+    fn = confusion_matrix.sum(dim=1) - tp
+    metrics["accuracy"] = tp.sum() / N
+    metrics["precision"] = tp / (tp + fp)
+    metrics["recall"] = tp / (tp + fn)
+    metrics["f1_beta"] = ((1 + beta ** 2) * metrics["precision"] * metrics["recall"]) / ((beta ** 2) * metrics["precision"] + metrics["recall"])
+    
+    metrics["precision"][torch.isnan(metrics["precision"])] = 0.0
+    metrics["recall"][torch.isnan(metrics["recall"])] = 0.0
+    metrics["f1_beta"][torch.isnan(metrics["f1_beta"])] = 0.0
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -97,7 +119,35 @@ def evaluate_model(model, data_loader, num_classes=10):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
+    N = len(data_loader.dataset)
+    predictions = torch.zeros((N, num_classes))
+    targets = torch.zeros(N)
+    idx = 0
+    
 
+    # Set the model to evaluation mode
+    model.eval()
+    running_loss = 0
+    with torch.no_grad():
+        for x, y in data_loader:
+            x = x.view(x.shape[0], -1)  # Flatten the input
+            y_preds = model(x)
+            loss = nn.functional.cross_entropy(y_preds, y)
+            running_loss += loss.item() * len(y)
+
+            shift = len(y)
+            predictions[idx:idx + shift, :] = y_preds
+            targets[idx:idx + shift] = y
+            idx += shift
+    
+    # Convert predictions and targets to numpy arrays
+    # predictions_np = predictions.cpu().numpy()
+    # targets_np = targets.cpu().numpy()
+
+    # Calculate confusion matrix and metrics
+    conf_mat = confusion_matrix(predictions, targets)
+    metrics = confusion_matrix_to_metrics(conf_mat, beta=1.)
+    metrics["loss"] = running_loss / N
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -158,16 +208,67 @@ def train(hidden_dims, lr, use_batch_norm, batch_size, epochs, seed, data_dir):
     # PUT YOUR CODE HERE  #
     #######################
 
+    n_classes = len(cifar10["train"].dataset.classes) #10
+    n_inputs = cifar10["train"].dataset[0][0].numel()
+
     # TODO: Initialize model and loss module
-    model = ...
-    loss_module = ...
+    model = MLP(n_inputs = n_inputs, 
+                n_hidden = hidden_dims,
+                n_classes = n_classes)
+    model.to(device)
+    loss_module = nn.CrossEntropyLoss()
     # TODO: Training loop including validation
-    # TODO: Do optimization with the simple SGD optimizer
-    val_accuracies = ...
+    optimizer = torch.optim.SGD(model.parameters(), lr = lr)
+    N_train = len(cifar10_loader["train"].dataset)
+
+    best_accuracy = 0
+    train_metrics = []
+    val_metrics = []
+    for epoch in tqdm(range(epochs)):
+        idx = 0
+        train_logits = torch.zeros((N_train, n_classes))
+        train_targets = torch.zeros(N_train)
+        epoch_loss = 0
+        model.train()
+        for x,y in cifar10_loader["train"]:
+            x, y = x.to(device), y.to(device)
+            x = x.view(x.shape[0], -1)
+            logits = model(x)
+            loss = loss_module(logits, y)
+            loss.backward()
+            epoch_loss += loss.item() * len(y)
+            # TODO: Do optimization with the simple SGD optimizer
+            optimizer.step()
+            optimizer.zero_grad()
+            shift = len(y)
+            train_logits[idx:idx + shift,:] = logits
+            train_targets[idx:idx + shift] = y
+            idx += shift
+
+        epoch_loss /= N_train
+        train_conf_mat = confusion_matrix(train_logits, train_targets)
+        train_metrics.append(confusion_matrix_to_metrics(train_conf_mat, beta=1.))
+        train_metrics[-1]["loss"] = epoch_loss
+
+        model.eval()
+
+        val_metrics.append(evaluate_model(model, cifar10_loader["validation"], num_classes=n_classes))
+        
+        if best_accuracy < val_metrics[-1]["accuracy"]:
+            best_accuracy = val_metrics[-1]["accuracy"]
+            best_model_state_dict = deepcopy(model.state_dict())
+
+    val_accuracies =  [i["accuracy"] for i in val_metrics]
     # TODO: Test best model
-    test_accuracy = ...
+    model.load_state_dict(best_model_state_dict)
+    test_metrics = evaluate_model(model, cifar10_loader["test"], num_classes=n_classes)
+    test_accuracy = test_metrics["accuracy"]
     # TODO: Add any information you might want to save for plotting
-    logging_info = ...
+    logging_info = {
+        "train": {k: [dic[k] for dic in train_metrics] for k in train_metrics[0]},
+        "val": {k: [dic[k] for dic in val_metrics] for k in val_metrics[0]},
+        "test": test_metrics,
+    }
     #######################
     # END OF YOUR CODE    #
     #######################
@@ -202,6 +303,16 @@ if __name__ == '__main__':
     args = parser.parse_args()
     kwargs = vars(args)
 
-    train(**kwargs)
+    model, val_accuracies, test_accuracy, logging_info = train(**kwargs)
     # Feel free to add any additional functions, such as plotting of the loss curve here
+    print(f"test_accuracy: {test_accuracy:.2f}")
+    plt.style.use('seaborn-v0_8')
+    plt.figure()
+    plt.plot(np.arange(kwargs["epochs"]) + 1 ,logging_info["train"]["loss"], label = "train loss")
+    plt.plot(np.arange(kwargs["epochs"]) + 1 ,logging_info["val"]["loss"], label = "val loss")
+    plt.xlabel("epoch")
+    plt.ylabel("loss")
+    plt.title("train and val loss curves")
+    plt.legend()
+    plt.show()
     

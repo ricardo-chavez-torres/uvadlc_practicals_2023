@@ -52,7 +52,15 @@ class MLP(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        self.modules = []
+        aux = n_hidden + [n_classes]
+        self.modules.append(LinearModule(in_features = n_inputs, out_features = aux[0], input_layer=True))
+
+        for i, o in zip(aux[:-1], aux[1:]):
+            self.modules.append(ELUModule())
+            self.modules.append(LinearModule(in_features = i, out_features = o, input_layer=False))
+        
+        self.modules.append(SoftMaxModule())
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -74,11 +82,13 @@ class MLP(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-
+        for module in self.modules:
+            x = module.forward(x)
+        
+        out = x
         #######################
         # END OF YOUR CODE    #
         #######################
-
         return out
 
     def backward(self, dout):
@@ -95,7 +105,8 @@ class MLP(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        for module in self.modules[::-1]:
+            dout = module.backward(dout)
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -112,7 +123,9 @@ class MLP(object):
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        pass
+        for module in self.modules:
+            module.clear_cache()
+
         #######################
         # END OF YOUR CODE    #
         #######################
