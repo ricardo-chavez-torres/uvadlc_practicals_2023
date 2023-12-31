@@ -113,20 +113,51 @@ def parse_option():
     args = parser.parse_args()
 
     args.num_workers = min(args.num_workers, os.cpu_count())
+    if args.prompt_type == "visual_prompt":
+        args.filename = "{}_{}_{}_{}_{}_{}_lr_{}_decay_{}_bsz_{}_warmup_{}_trial_{}".format(
+            args.method,
+            args.prompt_size,
+            args.dataset,
+            args.model,
+            args.arch,
+            args.optim,
+            args.learning_rate,
+            args.weight_decay,
+            args.batch_size,
+            args.warmup,
+            args.trial,
+        )
+    
+    elif args.prompt_type == "deep_prompt":
+        args.filename = "{}_promptn_{}_injection_{}_{}_{}_{}_{}_lr_{}_decay_{}_bsz_{}_warmup_{}_trial_{}".format(
+            args.prompt_type,
+            args.prompt_size,
+            args.injection_layer,
+            args.dataset,
+            args.model,
+            args.arch,
+            args.optim,
+            args.learning_rate,
+            args.weight_decay,
+            args.batch_size,
+            args.warmup,
+            args.trial,
+        )
+    else:
+        args.filename = "{}_{}_{}_{}_{}_{}_lr_{}_decay_{}_bsz_{}_warmup_{}_trial_{}".format(
+            args.method,
+            args.prompt_size,
+            args.dataset,
+            args.model,
+            args.arch,
+            args.optim,
+            args.learning_rate,
+            args.weight_decay,
+            args.batch_size,
+            args.warmup,
+            args.trial,
+        )
 
-    args.filename = "{}_{}_{}_{}_{}_{}_lr_{}_decay_{}_bsz_{}_warmup_{}_trial_{}".format(
-        args.method,
-        args.prompt_size,
-        args.dataset,
-        args.model,
-        args.arch,
-        args.optim,
-        args.learning_rate,
-        args.weight_decay,
-        args.batch_size,
-        args.warmup,
-        args.trial,
-    )
 
     args.device = "cuda" if torch.cuda.is_available() else "cpu"
     args.model_folder = os.path.join(args.model_dir, args.filename)
@@ -142,6 +173,8 @@ def main():
     learn = Learner(args)
 
     if args.evaluate:
+        learn.evaluate("train")
+        learn.evaluate("valid")
         learn.evaluate("test")
     else:
         learn.run()

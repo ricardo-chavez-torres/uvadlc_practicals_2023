@@ -40,6 +40,7 @@ class Learner:
         self.args = args
         self.device = args.device
         self.best_acc1 = 0
+        self.best_acc1_train = 0
 
         # Load clip image transformation
         _, preprocess = clip.load(args.arch)
@@ -69,11 +70,18 @@ class Learner:
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        # TODO: Turn off gradients in both the image and the text encoder
+        # Turn off gradients in both the image and the text encoder
+
         # Note: You need to keep the visual/deep prompt's parameters trainable
+        
+        for name, param in self.clip.named_parameters():
+            if ("prompt_learner" in name) or ("deep_prompt" in name): 
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+
         # Hint: Check for "prompt_learner" and "deep_prompt" in the parameters' names
 
-        raise NotImplementedError
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -150,7 +158,7 @@ class Learner:
         for epoch in range(self.args.epochs):
 
             # Train for one epoch
-            self.train_one_epoch(epoch)
+            losses_train, top1_train = self.train_one_epoch(epoch)
 
             # Evaluate on validation set
             acc1 = self.evaluate()
@@ -158,6 +166,8 @@ class Learner:
             # Remember best acc@1 and save checkpoint
             is_best = acc1 > self.best_acc1
             self.best_acc1 = max(acc1, self.best_acc1)
+            if is_best:
+                self.best_acc1_train = top1_train
 
             save_checkpoint(
                 {
@@ -179,6 +189,13 @@ class Learner:
                 if epochs_since_improvement >= self.args.patience:
                     print("The training halted by early stopping criterion.")
                     break
+        if self.args.prompt_type == "visual_prompt":
+            print(f"Experiment on {self.args.dataset} with {self.args.method} and prompt size {self.args.prompt_size}")
+        elif self.args.prompt_type == "deep_prompt":
+            print(f"Experiment on {self.args.dataset} with {self.args.prompt_type}, {self.args.prompt_num} in layer {self.args.injection_layer}")
+
+        print(f"Best Train Acc@1 {self.best_acc1_train}")
+        print(f"Best Valid Acc@1 {self.best_acc1}")
 
     def train_one_epoch(self, epoch):
         """
@@ -206,7 +223,8 @@ class Learner:
         num_batches_per_epoch = len(self.train_loader)
 
         end = time.time()
-        for i, (images, target) in enumerate(tqdm(self.train_loader)):
+        # for i, (images, target) in enumerate(tqdm(self.train_loader)):
+        for i, (images, target) in enumerate(self.train_loader):
 
             # Measure data loading time
             data_time.update(time.time() - end)
@@ -219,23 +237,28 @@ class Learner:
             # PUT YOUR CODE HERE  #
             #######################
 
-            # TODO: Implement the training step for a single batch
+            # Implement the training step for a single batch
 
             # Steps ( your usual training loop :) ):
             # - Set the gradients to zero
+            self.optimizer.zero_grad()
             # - Move the images/targets to the device
+            images, target = images.to(self.device), target.to(self.device)
             # - Perform a forward pass (using self.clip)
+            logits = self.clip(images)
             # - Compute the loss (using self.criterion)
+            loss = self.criterion(logits, target)
             # - Perform a backward pass
+            loss.backward()
             # - Update the parameters
-
-            raise NotImplementedError
+            self.optimizer.step()
+            
             #######################
             # END OF YOUR CODE    #
             #######################
 
             # Measure accuracy
-            acc1 = accuracy(output, target, topk=(1,))
+            acc1 = accuracy(output = logits, target = target, topk=(1,))
             losses.update(loss.item(), images.size(0))
             top1.update(acc1[0].item(), images.size(0))
 
@@ -256,6 +279,10 @@ class Learner:
                     },
                     self.args,
                 )
+        print(f"evaluation in train data")
+        print(
+            " * Prompt Acc@1 {top1.avg:.3f}".format(top1=top1)
+        )
 
         return losses.avg, top1.avg
 
@@ -264,7 +291,12 @@ class Learner:
         batch_time = AverageMeter("Time", ":6.3f")
         losses = AverageMeter("Loss", ":.4e")
         top1_prompt = AverageMeter("Prompt Acc@1", ":6.2f")
-        loader = self.val_loader if split == "valid" else self.test_loader
+        if split == "valid":
+            loader = self.val_loader
+        elif split == "train":
+            loader = self.train_loader
+        else:
+            loader = self.test_loader
         progress = ProgressMeter(
             len(loader),
             [batch_time, losses, top1_prompt],
@@ -276,26 +308,29 @@ class Learner:
 
         with torch.no_grad():
             end = time.time()
-            for i, (images, target) in enumerate(tqdm(loader)):
+            # for i, (images, target) in enumerate(tqdm(loader)):
+            for i, (images, target) in enumerate(loader):
+
 
                 #######################
                 # PUT YOUR CODE HERE  #
                 #######################
 
-                # TODO: Implement the evaluation step for a single batch
+                # Implement the evaluation step for a single batch
 
                 # Steps ( your usual evaluation loop :) ):
                 # - Move the images/targets to the device
+                images, target = images.to(self.device), target.to(self.device)
                 # - Forward pass (using self.clip)
+                logits = self.clip(images)
                 # - Compute the loss (using self.criterion)
-
-                raise NotImplementedError
+                loss = self.criterion(logits, target)
                 #######################
                 # END OF YOUR CODE    #
                 #######################
 
                 # Measure accuracy and record loss
-                acc1 = accuracy(output, target, topk=(1,))
+                acc1 = accuracy(output = logits, target = target, topk=(1,))
                 losses.update(loss.item(), images.size(0))
                 top1_prompt.update(acc1[0].item(), images.size(0))
 
@@ -305,7 +340,7 @@ class Learner:
 
                 if i % self.args.print_freq == 0:
                     progress.display(i)
-
+            print(f"evaluation in {split} data")
             print(
                 " * Prompt Acc@1 {top1_prompt.avg:.3f}".format(top1_prompt=top1_prompt)
             )

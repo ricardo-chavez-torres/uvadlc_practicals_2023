@@ -177,14 +177,13 @@ def main():
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        # TODO: Define `classnames` as a list of 10 + 100 class labels from CIFAR10 and CIFAR100
-
-        raise NotImplementedError
+        # Define `classnames` as a list of 10 + 100 class labels from CIFAR10 and CIFAR100
+        classnames = list(cifar10_test.classes) + list(cifar100_test.classes)
         #######################
         # END OF YOUR CODE    #
         #######################
 
-        classnames = cifar10_test.classes + cifar100_test.classes
+        # classnames = cifar10_test.classes + cifar100_test.classes
 
         # 5. Load the clip model
         print(f"Loading CLIP (backbone: {args.arch})")
@@ -204,10 +203,16 @@ def main():
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        # TODO: Compute the text features (for each of the prompts defined above) using CLIP
+        # Compute the text features (for each of the prompts defined above) using CLIP
         # Note: This is similar to the code you wrote in `clipzs.py`
+        text = clip.tokenize(prompts).to(args.device)
+        # - Compute the text features (encodings) for each prompt.        
+        text_features = clip_model.encode_text(text)
+        # - Normalize the text features.
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        
+        # - Return a tensor of shape (num_prompts, 512).
 
-        raise NotImplementedError
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -219,11 +224,11 @@ def main():
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        # TODO: Add an offset of 10 to the targets of CIFAR100
+        # Add an offset of 10 to the targets of CIFAR100
         # That is, if a class in CIFAR100 corresponded to '4', it should now correspond to '14'
         # Set the result of this to the attribute cifar100_test.targets to override them
+        cifar100_test.targets = [i + 10 for i in cifar100_test.targets]
 
-        raise NotImplementedError
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -250,13 +255,15 @@ def main():
         #######################
         # PUT YOUR CODE HERE  #
         #######################
-        # TODO: Compute the weighted average of the above two accuracies
+        # Compute the weighted average of the above two accuracies
 
         # Hint:
-        # - accurary_all = acc_cifar10 * (% of cifar10 samples) \
+        # - accuracy_all = acc_cifar10 * (% of cifar10 samples) \
         #                  + acc_cifar100 * (% of cifar100 samples)
-
-        raise NotImplementedError
+        N_cifar10 = len(cifar10_test)
+        N_cifar100 = len(cifar100_test)
+        N = N_cifar10 + N_cifar100
+        accuracy_all = (acc_cifar10 * N_cifar10 + acc_cifar100 * N_cifar100) / N
         #######################
         # END OF YOUR CODE    #
         #######################

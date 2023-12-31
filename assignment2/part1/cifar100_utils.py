@@ -45,14 +45,19 @@ class AddGaussianNoise(torch.nn.Module):
         # PUT YOUR CODE HERE  #
         #######################
 
-        # TODO: Add Gaussian noise to an image.
+        # Add Gaussian noise to an image.
 
         # Hints:
         # - You can use torch.randn() to sample z ~ N(0, 1).
         # - Then, you can transform z s.t. it is sampled from N(self.mean, self.std)
         # - Finally, you can add the noise to the image.
-
-        raise NotImplementedError
+        if self.always_apply:
+            img = img + torch.randn(img.shape) * self.std + self.mean
+        else:
+            if torch.rand(1) <0.5:
+               img = img + torch.randn(img.shape) * self.std + self.mean
+        return img
+        # raise NotImplementedError
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -69,12 +74,65 @@ def add_augmentation(augmentation_name, transform_list):
     #######################
     # PUT YOUR CODE HERE  #
     #######################
-
+    # augmentations = ["augmentations","RandomGaussianNoise","RandomBlur","RandomHorizontalFlip", "RandomAffine"]
     # Create a new transformation based on the augmentation_name.
-    pass
+    if augmentation_name == "augmentations":
+        print(f"augmentation: augmentations")
+        augmentations = [
+            transforms.RandomHorizontalFlip(p = 0.5),  # Randomly flip the image horizontally
+            transforms.RandomAffine(degrees = 15,
+                                        translate = (0.1, 0.1),
+                                        scale= (0.9, 1.1),
+                                        shear = (-5, 5),),
+            ]  
+        augmentations_post = [
+            AddGaussianNoise(mean=0., std=0.1, always_apply=False)
+            ]    
+    elif augmentation_name == "RandomGaussianNoise":
+        print(f"augmentation: RandomGaussianNoise")
+        augmentations = []
+        augmentations_post = [
+            AddGaussianNoise(mean=0., std=0.1, always_apply=False)
+            ]  
+        
+    # elif augmentation_name == "RandomBlur":
+    #     print(f"augmentation: RandomBlur")
+
+    #     augmentations = [
+    #         transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.5)
+    #         ]  
+        
+    elif augmentation_name == "RandomHorizontalFlip":
+        print(f"augmentation: RandomHorizontalFlip")
+
+        augmentations = [
+            transforms.RandomHorizontalFlip(p = 0.5),  # Randomly flip the image horizontally
+            ]  
+        augmentations_post = []
+    elif augmentation_name == "RandomAffine": 
+        print(f"augmentation: RandomAffine")
+        augmentations = [
+            transforms.RandomAffine(degrees = 15,
+                                    translate = (0.1, 0.1),
+                                    scale= (0.9, 1.1),
+                                    shear = (-5, 5),)
+            ] 
+        augmentations_post = []
+    elif augmentation_name == "test_noise":
+        print(f"augmentation: test_noise")
+        augmentations = []
+        augmentations_post = [
+            AddGaussianNoise(mean=0., std=0.1, always_apply=True)
+            ]  
+    else:
+        print(f"augmentation: None")
+        augmentations = []
+        augmentations_post = []
+    
 
     # Add the new transformation to the list.
-    pass
+    transform_list = augmentations + transform_list + augmentations_post 
+    return transform_list
 
     #######################
     # END OF YOUR CODE    #
@@ -102,9 +160,8 @@ def get_train_validation_set(data_dir, validation_size=5000, augmentation_name=N
                        transforms.ToTensor(),
                        transforms.Normalize(mean, std)]
     if augmentation_name is not None:
-        add_augmentation(augmentation_name, train_transform)
+        train_transform = add_augmentation(augmentation_name, train_transform)
     train_transform = transforms.Compose(train_transform)
-
     val_transform = transforms.Compose([transforms.Resize((224, 224)),
                                         transforms.ToTensor(),
                                         transforms.Normalize(mean, std)])
@@ -147,7 +204,7 @@ def get_test_set(data_dir, test_noise):
                         transforms.ToTensor(),
                         transforms.Normalize(mean, std)]
     if test_noise:
-        add_augmentation('test_noise', test_transform)
+        test_transform = add_augmentation('test_noise', test_transform)
     test_transform = transforms.Compose(test_transform)
 
     dataset = get_dataset(dataset_name)

@@ -57,15 +57,24 @@ class DeepPromptCLIP(nn.Module):
         # PUT YOUR CODE HERE  #
         #######################
 
-        # TODO: Write code to compute text features.
+        # Write code to compute text features.
         # Hint: You can use the code from clipzs.py here!
 
         # Instructions:
         # - Given a list of prompts, compute the text features for each prompt.
         # - Return a tensor of shape (num_prompts, 512).
 
-        # remove this line once you implement the function
-        raise NotImplementedError("Write the code to compute text features.")
+        # - Given a list of prompts, compute the text features for each prompt.
+        # text = clip.tokenize(prompts).to(args.device)
+        # - Compute the text features (encodings) for each prompt.
+        with torch.no_grad():
+            text_features = clip_model.encode_text(prompts)
+            
+            # - Normalize the text features.
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        
+        # - Return a tensor of shape (num_prompts, 512).
+        # return text_features
 
         #######################
         # END OF YOUR CODE    #
@@ -81,15 +90,14 @@ class DeepPromptCLIP(nn.Module):
         # PUT YOUR CODE HERE  #
         #######################
 
-        # TODO: Initialize the learnable deep prompt.
+        # Initialize the learnable deep prompt.
         # Hint: consider the shape required for the deep prompt to be compatible with the CLIP model 
         # Hint: CLIP uses different datatypes for CPU (float32) and GPU (float16)
         # Hint: use args.prompt_num to specify the number of deep prompts to use
 
-        self.deep_prompt = 
+        self.deep_prompt = nn.Parameter(torch.randn(args.prompt_num, 1, 768).to(args.device, dtype=clip_model.dtype))
 
         # remove this line once you implement the function
-        raise NotImplementedError("Write the code to compute text features.")
 
         #######################
         # END OF YOUR CODE    #
@@ -102,7 +110,7 @@ class DeepPromptCLIP(nn.Module):
         # PUT YOUR CODE HERE  #
         #######################
 
-        # TODO: Implement the forward function. This is not exactly the same as
+        # Implement the forward function. This is not exactly the same as
         # the model_inferece function in clipzs.py! Please see the steps below.
 
         # Steps:
@@ -111,10 +119,11 @@ class DeepPromptCLIP(nn.Module):
         # - Compute similarity logits between the image features and the text features.
         # - You need to multiply the similarity logits with the logit scale (clip_model.logit_scale).
         # - Return logits of shape (batch size, number of classes).
-
-        # remove this line once you implement the function
-        raise NotImplementedError("Implement the model_inference function.")
-
+        image_features = self.custom_encode_image(image)
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        similarity_logits = image_features @ self.text_features.T
+        logits = self.logit_scale * similarity_logits
+        return logits
         #######################
         # END OF YOUR CODE    #
         #######################
@@ -129,7 +138,9 @@ class DeepPromptCLIP(nn.Module):
         x = image_encoder.conv1(x)  # shape = [*, width, grid, grid]
         x = x.reshape(x.shape[0], x.shape[1], -1)  # shape = [*, width, grid ** 2]
         x = x.permute(0, 2, 1)  # shape = [*, grid ** 2, width]
-        x = torch.cat([image_encoder.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device), x], dim=1)  # shape = [*, grid ** 2 + 1, width]
+        x = torch.cat([
+            image_encoder.class_embedding.to(x.dtype) + torch.zeros(x.shape[0], 1, x.shape[-1], dtype=x.dtype, device=x.device), 
+            x], dim=1)  # shape = [*, grid ** 2 + 1, width]
         x = x + image_encoder.positional_embedding.to(x.dtype)
         x = image_encoder.ln_pre(x)
 
@@ -139,18 +150,23 @@ class DeepPromptCLIP(nn.Module):
         # PUT YOUR CODE HERE  #
         #######################
 
-        # TODO: Implement the part of the code where the deep prompt is injected into the CLIP model.
+        # Implement the part of the code where the deep prompt is injected into the CLIP model.
         # The custom_encode_image function largely follows the code from the CLIP repository.
         # You only need to modify the code responsible for running the transformer blocks.
 
         # Steps:
-        # - Iterate over the transformer blocks (image_encoder.transformer.resblocks).
-        # - Inject the deep prompt at the specified layer (self.injection_layer).
+        # - Iterate over the transformer blocks (image_encoder.transformer.resblocks.d_model).
+        for i, resblock in enumerate(image_encoder.transformer.resblocks):
+            # - Inject the deep prompt at the specified layer (self.injection_layer). 
+            if self.injection_layer == i+1:
+                # x.shape: LND
+                batch_size = x.size(1)
+                deep_prompt_expanded = self.deep_prompt.expand(-1, batch_size, -1).to(x.device)
+                x = torch.cat([deep_prompt_expanded, x], dim=0)
+            
+            x = resblock(x)
 
         # Hint: Beware of the batch size (the deep prompt is the same for all images in the batch).
-
-        # remove this line once you implement the function
-        raise NotImplementedError("Implement the model_inference function.")
 
         #######################
         # END OF YOUR CODE    #

@@ -38,7 +38,7 @@ def load_clip_to_cpu(cfg):
     """Loads CLIP model to CPU."""
     backbone_name = cfg.MODEL.BACKBONE.NAME
     url = clip._MODELS[backbone_name]
-    model_path = clip._download(url)
+    model_path = clip._download(url) # type: ignore
 
     try:
         # loading JIT archive
@@ -75,15 +75,24 @@ class VisualPromptCLIP(nn.Module):
         # PUT YOUR CODE HERE  #
         #######################
 
-        # TODO: Write code to compute text features.
+        # Write code to compute text features.
         # Hint: You can use the code from clipzs.py here!
 
         # Instructions:
         # - Given a list of prompts, compute the text features for each prompt.
+        text = clip.tokenize(prompts).to(args.device)
+        # - Compute the text features (encodings) for each prompt.
+        with torch.no_grad():
+            text_features = clip_model.encode_text(text)
+            
+            # - Normalize the text features.
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        
         # - Return a tensor of shape (num_prompts, 512).
+        # return text_features
 
         # remove this line once you implement the function
-        raise NotImplementedError("Write the code to compute text features.")
+        # raise NotImplementedError("Write the code to compute text features.")
 
         #######################
         # END OF YOUR CODE    #
@@ -106,7 +115,7 @@ class VisualPromptCLIP(nn.Module):
         # PUT YOUR CODE HERE  #
         #######################
 
-        # TODO: Implement the forward function. This is not exactly the same as
+        # Implement the forward function. This is not exactly the same as
         # the model_inferece function in clipzs.py! Please see the steps below.
 
         # Steps:
@@ -117,8 +126,18 @@ class VisualPromptCLIP(nn.Module):
         # - You need to multiply the similarity logits with the logit scale (clip_model.logit_scale).
         # - Return logits of shape (batch size, number of classes).
 
-        # remove this line once you implement the function
-        raise NotImplementedError("Implement the model_inference function.")
+        # - [!] Add the prompt to the image using self.prompt_learner.
+        image = self.prompt_learner(image)
+        # - Compute the image features using the CLIP model.
+        image_features = self.clip_model.encode_image(image)
+        # - Normalize the image features.
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        # - Compute similarity logits between the image features and the text features.
+        similarity_logits  = (image_features @ self.text_features.T)
+        # - You need to multiply the similarity logits with the logit scale (clip_model.logit_scale).
+        logits = self.logit_scale * similarity_logits
+        # - Return logits of shape (batch size, number of classes).
+        return logits        
 
         #######################
         # END OF YOUR CODE    #
